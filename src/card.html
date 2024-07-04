@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>텍사스 홀덤 시뮬레이터 (비트 연산)</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                line-height: 1.6;
+                padding: 20px;
+            }
+            input,
+            button {
+                margin: 10px 0;
+                padding: 5px;
+            }
+            #output {
+                white-space: pre-wrap;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>텍사스 홀덤 시뮬레이터 (비트 연산)</h1>
+        <input type="number" id="playerCount" min="2" max="9" value="2" />
+        <button onclick="startGame()">게임 시작</button>
+        <div id="output"></div>
+
+        <script>
+            const RANKS = 'A23456789TJQK';
+            const SUITS = '♠♣♦♥';
+
+            function createDeck() {
+                return Array.from({ length: 52 }, (_, i) => i);
+            }
+
+            function shuffleDeck(deck) {
+                for (let i = deck.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [deck[i], deck[j]] = [deck[j], deck[i]];
+                }
+                return deck;
+            }
+
+            function dealCards(numPlayers, deck) {
+                const hands = Array(numPlayers)
+                    .fill()
+                    .map(() => []);
+                for (let i = 0; i < 2; i++) {
+                    for (let j = 0; j < numPlayers; j++) {
+                        hands[j].push(deck.pop());
+                    }
+                }
+                return hands;
+            }
+
+            function dealCommunityCards(deck, numCards) {
+                return deck.splice(-numCards);
+            }
+
+            function cardToString(card) {
+                return RANKS[card % 13] + SUITS[Math.floor(card / 13)];
+            }
+            function evaluateHand(hand, communityCards) {
+                const allCards = [...hand, ...communityCards];
+                let rankBits = 0;
+                let suitCounts = [0, 0, 0, 0];
+                let rankCounts = new Array(13).fill(0);
+
+                for (let card of allCards) {
+                    let rank = card % 13;
+                    let suit = Math.floor(card / 13);
+                    rankBits |= 1 << rank;
+                    suitCounts[suit]++;
+                    rankCounts[rank]++;
+                }
+
+                // Check for flush
+                let flushSuit = suitCounts.indexOf(5);
+                let isFlush = flushSuit !== -1;
+
+                // Check for straight
+                let straight = getStraightHighCard(rankBits);
+
+                if (isFlush && straight) {
+                    if (straight === 12) return 'Royal Flush';
+                    return 'Straight Flush';
+                }
+
+                // Check for other hands
+                let fourOfAKind = rankCounts.indexOf(4);
+                if (fourOfAKind !== -1) return 'Four of a Kind';
+
+                let threeOfAKind = rankCounts.indexOf(3);
+                let pairs = rankCounts.reduce((acc, count, index) => (count === 2 ? [...acc, index] : acc), []);
+
+                if (threeOfAKind !== -1 && pairs.length >= 1) return 'Full House';
+                if (isFlush) return 'Flush';
+                if (straight) return 'Straight';
+                if (threeOfAKind !== -1) return 'Three of a Kind';
+                if (pairs.length === 2) return 'Two Pair';
+                if (pairs.length === 1) return 'One Pair';
+
+                return 'High Card';
+            }
+
+            function getStraightHighCard(rankBits) {
+                const straight = 0x1f; // 0b11111
+                for (let i = 9; i >= 0; i--) {
+                    if ((rankBits & (straight << i)) === straight << i) {
+                        return i + 4;
+                    }
+                }
+                // Check for Ace-low straight
+                if ((rankBits & 0x100f) === 0x100f) {
+                    return 3;
+                }
+                return null;
+            }
+
+            function calculateWinProbability(playerHand, communityCards, numPlayers) {
+                const handRankings = ['Royal Flush', 'Straight Flush', 'Four of a Kind', 'Full House', 'Flush', 'Straight', 'Three of a Kind', 'Two Pair', 'One Pair', 'High Card'];
+                const handStrength = handRankings.indexOf(evaluateHand(playerHand, communityCards));
+                return (10 - handStrength) / (10 * numPlayers);
+            }
+
+            function startGame() {
+                const output = document.getElementById('output');
+                output.textContent = '';
+
+                const numPlayers = parseInt(document.getElementById('playerCount').value);
+                if (numPlayers < 2 || numPlayers > 9) {
+                    output.textContent = '플레이어 수는 2에서 9 사이여야 합니다.';
+                    return;
+                }
+
+                let deck = createDeck();
+                deck = shuffleDeck(deck);
+                const hands = dealCards(numPlayers, deck);
+
+                output.textContent += `플레이어 수: ${numPlayers}\n`;
+                hands.forEach((hand, i) => {
+                    output.textContent += `플레이어 ${i + 1}의 패: ${hand.map(cardToString).join(' ')}\n`;
+                });
+
+                // 플랍
+                const flop = dealCommunityCards(deck, 3);
+                output.textContent += `\n플랍: ${flop.map(cardToString).join(' ')}\n`;
+                hands.forEach((hand, i) => {
+                    const prob = calculateWinProbability(hand, flop, numPlayers);
+                    const handRank = evaluateHand(hand, flop);
+                    output.textContent += `플레이어 ${i + 1} - 승률: ${prob.toFixed(2)}, 현재 핸드: ${handRank}\n`;
+                });
+
+                // 턴
+                const turn = dealCommunityCards(deck, 1);
+                const communityCards = [...flop, ...turn];
+                output.textContent += `\n턴: ${communityCards.map(cardToString).join(' ')}\n`;
+                hands.forEach((hand, i) => {
+                    const prob = calculateWinProbability(hand, communityCards, numPlayers);
+                    const handRank = evaluateHand(hand, communityCards);
+                    output.textContent += `플레이어 ${i + 1} - 승률: ${prob.toFixed(2)}, 현재 핸드: ${handRank}\n`;
+                });
+
+                // 리버
+                const river = dealCommunityCards(deck, 1);
+                const finalCommunityCards = [...communityCards, ...river];
+                output.textContent += `\n리버: ${finalCommunityCards.map(cardToString).join(' ')}\n`;
+                hands.forEach((hand, i) => {
+                    const prob = calculateWinProbability(hand, finalCommunityCards, numPlayers);
+                    const handRank = evaluateHand(hand, finalCommunityCards);
+                    output.textContent += `플레이어 ${i + 1} - 승률: ${prob.toFixed(2)}, 현재 핸드: ${handRank}\n`;
+                });
+            }
+        </script>
+    </body>
+</html>
